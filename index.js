@@ -45,7 +45,7 @@ module.exports = function (defaults, options) {
     var user_agent = ctx.get('user-agent')
     var referrer = ctx.get('referer') || ctx.get('referrer')
 
-    var level = status < 400 ? 'info' : (status < 500 ? 'warn' : 'error')
+    var level = (options.log_level || log_level)(status)
 
     var log_info = {
       event: 'request-end',
@@ -181,6 +181,10 @@ module.exports = function (defaults, options) {
       out(ctx, start, counter ? counter.length : length, null, event)
     }
   }
+}
+
+var log_level = module.exports.log_level = function (status) {
+    return status < 400 ? 'info' : (status < 500 ? 'warn' : 'error')
 }
 
 var format_time = module.exports.format_time = function (start) {
