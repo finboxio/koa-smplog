@@ -21,14 +21,19 @@ var colorCodes = {
   1: 'green'
 }
 
+var closure = Symbol('closure')
+var logged = Symbol('logged')
+
 module.exports = function (defaults, options) {
   defaults = defaults || {}
   options = options || {}
 
   function out (ctx, start, len, err, event) {
+    if (ctx[logged]) return
+    ctx[logged] = true
     var status = err
       ? (err.status || 500)
-      : (ctx.status || 404)
+      : (ctx[closure] || ctx.status || 404)
     var s = status / 100 | 0
     var color = colorCodes[s]
     var length = format_length(len, status)
@@ -72,6 +77,8 @@ module.exports = function (defaults, options) {
     var start = Date.now()
     var ctx = this
     var res = this.res
+    var req = this.req
+    var socket = this.res.socket
 
     if (this.log) {
       var parent = this.log
@@ -87,6 +94,29 @@ module.exports = function (defaults, options) {
       // Unpatch log
       this.log = parent
     } else {
+      // log when the response is finished or closed,
+      // whichever happens first.
+      var onfinish = done.bind(null, 'finish')
+      var oncloseres = function(err) {
+        ctx[closure] = ctx[closure] || 499
+        done('close')
+      }
+      var onclosereq = function(err) {
+        if (!req.complete) {
+          ctx[closure] = ctx[closure] || 499
+          done('close')
+        }
+      }
+      var onerror = function(err) {
+        ctx[closure] = ctx[closure] || 599
+        done('close')
+      }
+
+      res.once('finish', onfinish)
+      res.once('close', oncloseres)
+      req.once('close', onclosereq)
+      socket.once('error', onerror)
+
       // Setup trace id
       this.smplog_trace = this.smplog_trace ||
         this.get('x-smplog-trace') ||
@@ -150,6 +180,7 @@ module.exports = function (defaults, options) {
       } catch (err) {
         // Log uncaught downstream errors
         out(this, start, null, err)
+        done('error')
         throw err
       }
 
@@ -165,20 +196,16 @@ module.exports = function (defaults, options) {
           .pipe(counter)
           .on('error', this.onerror)
       }
-
-      // log when the response is finished or closed,
-      // whichever happens first.
-      var onfinish = done.bind(null, 'finish')
-      var onclose = done.bind(null, 'close')
-
-      res.once('finish', onfinish)
-      res.once('close', onclose)
     }
 
     function done (event) {
       res.removeListener('finish', onfinish)
-      res.removeListener('close', onclose)
-      out(ctx, start, counter ? counter.length : length, null, event)
+      res.removeListener('close', oncloseres)
+      req.removeListener('close', onclosereq)
+      socket.removeListener('error', onerror)
+      if (event !== 'error') {
+        out(ctx, start, counter ? counter.length : length, null, event)
+      }
     }
   }
 }
@@ -245,7 +272,7 @@ var request_interceptor = module.exports.request_interceptor = (log) => function
   var _callback = function (err, response, body) {
     var status = err
       ? (err.status || 500)
-      : (response.statusCode || 404)
+      : (response.statusCode ?? 499)
     var s = status / 100 | 0
     var color = colorCodes[s]
     var len = response && response.headers ? (response.headers['content-length'] || 0) : 0
