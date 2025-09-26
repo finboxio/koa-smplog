@@ -78,7 +78,7 @@ module.exports = function (defaults, options) {
     var ctx = this
     var res = this.res
     var req = this.req
-    var socket = this.res.socket
+    var socket = this.req.socket
 
     if (this.log) {
       var parent = this.log
@@ -115,7 +115,7 @@ module.exports = function (defaults, options) {
       res.once('finish', onfinish)
       res.once('close', oncloseres)
       req.once('close', onclosereq)
-      socket.once('error', onerror)
+      if (socket) socket.once('error', onerror)
 
       // Setup trace id
       this.smplog_trace = this.smplog_trace ||
@@ -202,7 +202,7 @@ module.exports = function (defaults, options) {
       res.removeListener('finish', onfinish)
       res.removeListener('close', oncloseres)
       req.removeListener('close', onclosereq)
-      socket.removeListener('error', onerror)
+      if (socket) socket.removeListener('error', onerror)
       if (event !== 'error') {
         out(ctx, start, counter ? counter.length : length, null, event)
       }
